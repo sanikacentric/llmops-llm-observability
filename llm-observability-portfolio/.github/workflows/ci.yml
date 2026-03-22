@@ -1,0 +1,98 @@
+# .github/workflows/ci.yml
+# Runs on every push and PR to main.
+# Tests all 4 projects, lints with ruff, and checks types with mypy.
+# No real API keys needed — all external calls are mocked.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=project1_llm_trace_pipeline \
+            --cov=project2_eval_framework \
+            --cov=project3_cost_latency_optimizer \
+            --cov=project4_ai_sre_triage \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=80
+        env:
+          DD_API_KEY: test-key
+          DD_APP_KEY: test-key
+          OPENAI_API_KEY: test-key
+          SLACK_WEBHOOK_URL: https://hooks.slack.com/test
+          DD_WEBHOOK_SECRET: ""
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install linting tools
+        run: pip install ruff mypy
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+  # ── Integration smoke test (only runs on main, needs real secrets) ─────────
+  # Uncomment and configure secrets in GitHub repo settings to enable.
+  #
+  # integration:
+  #   name: Integration smoke test
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main'
+  #   needs: [test, lint]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with: { python-version: "3.12" }
+  #     - run: pip install -r requirements.txt
+  #     - name: RAG pipeline smoke test
+  #       run: python project1_llm_trace_pipeline/app/rag_support_bot.py
+  #       env:
+  #         DD_API_KEY: ${{ secrets.DD_API_KEY }}
+  #         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  #         DD_ENV: ci

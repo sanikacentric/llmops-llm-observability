@@ -1,0 +1,22 @@
+# LLM Observability Portfolio — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core LLM ──────────────────────────────────────────────────────────────────
+openai>=1.30.0
+
+# ── Datadog observability ─────────────────────────────────────────────────────
+ddtrace>=2.8.0          # tracing + LLM Observability spans + decorators
+datadog>=0.49.0         # DogStatsD (custom metrics) + REST API client
+
+# ── Project 1: RAG pipeline ───────────────────────────────────────────────────
+numpy>=1.26.0           # cosine similarity for in-memory vector store
+
+# ── Project 4: AI SRE Triage Bot ─────────────────────────────────────────────
+fastapi>=0.111.0        # webhook server
+uvicorn[standard]>=0.29.0  # ASGI server
+httpx>=0.27.0           # async HTTP for Slack + Datadog API calls
+
+# ── Dev / testing ─────────────────────────────────────────────────────────────
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+python-dotenv>=1.0.0    # load .env for local development

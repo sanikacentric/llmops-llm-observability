@@ -1,0 +1,115 @@
+{
+  "title": "RAG Support Bot — LLM Observability",
+  "description": "End-to-end observability for the RAG support pipeline. Tracks latency, token usage, retrieval quality, and error rates across all LLM spans.",
+  "layout_type": "ordered",
+  "widgets": [
+    {
+      "id": "llm_request_volume",
+      "definition": {
+        "type": "timeseries",
+        "title": "LLM requests per minute",
+        "requests": [
+          {
+            "q": "sum:dd.llm.request.count{ml_app:rag-support-bot}.as_rate()",
+            "display_type": "bars",
+            "style": { "palette": "dog_classic" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "p95_latency",
+      "definition": {
+        "type": "timeseries",
+        "title": "p95 end-to-end pipeline latency (ms)",
+        "requests": [
+          {
+            "q": "p95:dd.llm.request.duration{ml_app:rag-support-bot,span.name:rag_support_pipeline}",
+            "display_type": "line",
+            "style": { "palette": "warm" }
+          }
+        ],
+        "yaxis": { "min": "0" },
+        "markers": [
+          { "value": "y = 2000", "display_type": "error dashed", "label": "SLO threshold: 2s" }
+        ]
+      }
+    },
+    {
+      "id": "token_cost",
+      "definition": {
+        "type": "timeseries",
+        "title": "Token cost (USD/hour)",
+        "requests": [
+          {
+            "q": "sum:llm.cost.usd{ml_app:rag-support-bot} by {model}.as_rate() * 3600",
+            "display_type": "area",
+            "style": { "palette": "green" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "error_rate",
+      "definition": {
+        "type": "query_value",
+        "title": "Error rate",
+        "requests": [
+          {
+            "q": "sum:dd.llm.request.error.count{ml_app:rag-support-bot}.as_rate() / sum:dd.llm.request.count{ml_app:rag-support-bot}.as_rate() * 100",
+            "aggregator": "last",
+            "conditional_formats": [
+              { "comparator": ">", "value": 5, "palette": "white_on_red" },
+              { "comparator": ">", "value": 1, "palette": "white_on_yellow" },
+              { "comparator": "<=", "value": 1, "palette": "white_on_green" }
+            ]
+          }
+        ],
+        "suffix": "%"
+      }
+    },
+    {
+      "id": "span_breakdown",
+      "definition": {
+        "type": "timeseries",
+        "title": "Latency by span (query_rewriter vs answer_generator)",
+        "requests": [
+          {
+            "q": "avg:dd.llm.request.duration{ml_app:rag-support-bot} by {span.name}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tokens_by_model",
+      "definition": {
+        "type": "toplist",
+        "title": "Total tokens by model (last 1h)",
+        "requests": [
+          {
+            "q": "sum:llm.tokens.total{ml_app:rag-support-bot} by {model}",
+            "aggregator": "sum"
+          }
+        ]
+      }
+    },
+    {
+      "id": "retrieval_doc_count",
+      "definition": {
+        "type": "distribution",
+        "title": "Documents retrieved per query",
+        "requests": [
+          {
+            "q": "avg:rag.retrieval.doc_count{ml_app:rag-support-bot}",
+            "style": { "palette": "purple" }
+          }
+        ]
+      }
+    }
+  ],
+  "template_variables": [
+    { "name": "env", "default": "production", "prefix": "env" },
+    { "name": "ml_app", "default": "rag-support-bot", "prefix": "ml_app" }
+  ]
+}

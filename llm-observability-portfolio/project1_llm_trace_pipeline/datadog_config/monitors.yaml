@@ -1,0 +1,49 @@
+# datadog_config/monitors.yaml
+# Deploy with: terraform apply or Datadog Terraform provider
+# Reference: https://docs.datadoghq.com/monitors/
+
+monitors:
+  - name: "[RAG Bot] p95 latency exceeds 2s SLO"
+    type: metric alert
+    query: |
+      p95(last_5m):avg:dd.llm.request.duration{ml_app:rag-support-bot,span.name:rag_support_pipeline} > 2000
+    message: |
+      RAG pipeline p95 latency has exceeded the 2-second SLO.
+      Current value: {{value}}ms
+
+      Runbook: https://wiki.internal/runbooks/rag-latency
+      Check: answer_generator span (gpt-4o) is usually the bottleneck.
+      @pagerduty-llm-oncall
+    thresholds:
+      critical: 2000
+      warning: 1500
+    tags:
+      - ml_app:rag-support-bot
+      - team:ml-platform
+
+  - name: "[RAG Bot] Error rate exceeds 5%"
+    type: metric alert
+    query: |
+      sum(last_5m):sum:dd.llm.request.error.count{ml_app:rag-support-bot}.as_rate() / sum:dd.llm.request.count{ml_app:rag-support-bot}.as_rate() * 100 > 5
+    message: |
+      LLM request error rate is above 5%.
+      This may indicate OpenAI API issues or prompt injection.
+      @slack-ml-alerts
+    thresholds:
+      critical: 5
+      warning: 2
+
+  - name: "[RAG Bot] Hourly token cost exceeds budget"
+    type: metric alert
+    query: |
+      sum(last_1h):sum:llm.cost.usd{ml_app:rag-support-bot} > 10.0
+    message: |
+      Token spend in the last hour exceeded $10.
+      Check for traffic spikes or prompt length regressions.
+      @slack-ml-alerts @finance-alerts
+    thresholds:
+      critical: 10.0
+      warning: 7.5
+    tags:
+      - ml_app:rag-support-bot
+      - cost:budget-alert

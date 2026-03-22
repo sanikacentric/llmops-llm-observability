@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Observability Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+/* ── Reset & Variables ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #06090f;
+  --bg2:      #0c1220;
+  --bg3:      #111827;
+  --surface:  rgba(255,255,255,0.03);
+  --surface2: rgba(255,255,255,0.06);
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.12);
+
+  --blue:   #4f8ef7;
+  --purple: #a78bfa;
+  --green:  #34d399;
+  --yellow: #fbbf24;
+  --red:    #f87171;
+  --cyan:   #22d3ee;
+  --pink:   #f472b6;
+
+  --text:   #e2e8f0;
+  --muted:  #94a3b8;
+  --dim:    #475569;
+
+  --r:  10px;
+  --r2: 16px;
+  --r3: 20px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(79,142,247,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 10%, rgba(167,139,250,0.05) 0%, transparent 60%);
+}
+
+/* ── Typography ───────────────────────────────────────────────────────────── */
+h1, h2, h3, h4 { font-weight: 700; line-height: 1.3; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Navigation ────────────────────────────────────────────────────────────── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(6,9,15,0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.nav-logo .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse-dot 2s infinite;
+}
+
+.nav-links {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.nav-links a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.nav-links a:hover { color: var(--text); background: var(--surface2); }
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.status-badge .indicator {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.status-badge.running .indicator { background: var(--yellow); animation: pulse-dot 0.8s infinite; }
+.status-badge.done    .indicator { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-badge.error   .indicator { background: var(--red); }
+
+.btn-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: var(--r);
+  border: none;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s;
+  box-shadow: 0 0 20px rgba(79,142,247,0.25);
+  font-family: 'Inter', sans-serif;
+}
+.btn-run:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 32px rgba(79,142,247,0.45); }
+.btn-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ── Layout ────────────────────────────────────────────────────────────────── */
+main { max-width: 1400px; margin: 0 auto; padding: 32px 28px 60px; }
+
+.section { margin-bottom: 56px; }
+
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.project-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.p1-badge { background: rgba(79,142,247,0.15); color: var(--blue); border: 1px solid rgba(79,142,247,0.3); }
+.p2-badge { background: rgba(52,211,153,0.12); color: var(--green); border: 1px solid rgba(52,211,153,0.3); }
+.p3-badge { background: rgba(251,191,36,0.12); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
+.p4-badge { background: rgba(244,114,182,0.12); color: var(--pink); border: 1px solid rgba(244,114,182,0.3); }
+
+.section-title { font-size: 20px; font-weight: 700; }
+.section-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+/* ── Cards ─────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 20px;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border2); }
+
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-title .icon {
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+/* ── KPI Cards ─────────────────────────────────────────────────────────────── */
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.kpi-card:hover { transform: translateY(-2px); border-color: var(--border2); }
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.kpi-card.p1::before { background: linear-gradient(90deg, var(--blue), var(--cyan)); }
+.kpi-card.p2::before { background: linear-gradient(90deg, var(--green), var(--cyan)); }
+.kpi-card.p3::before { background: linear-gradient(90deg, var(--yellow), var(--green)); }
+.kpi-card.p4::before { background: linear-gradient(90deg, var(--pink), var(--purple)); }
+
+.kpi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.kpi-icon {
+  font-size: 22px;
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kpi-icon.blue   { background: rgba(79,142,247,0.12); }
+.kpi-icon.green  { background: rgba(52,211,153,0.12); }
+.kpi-icon.yellow { background: rgba(251,191,36,0.12); }
+.kpi-icon.pink   { background: rgba(244,114,182,0.12); }
+
+.kpi-project-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.kpi-main {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.kpi-main.blue   { color: var(--blue); }
+.kpi-main.green  { color: var(--green); }
+.kpi-main.yellow { color: var(--yellow); }
+.kpi-main.pink   { color: var(--pink); }
+
+.kpi-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+
+.kpi-stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.kpi-stat { flex: 1; }
+.kpi-stat-value { font-size: 13px; font-weight: 600; }
+.kpi-stat-label { font-size: 11px; color: var(--dim); }
+
+/* ── Charts ─────────────────────────────────────────────────────────────────── */
+.chart-wrap { position: relative; height: 220px; }
+.chart-wrap-sm { position: relative; height: 180px; }
+.chart-wrap-lg { position: relative; height: 280px; }
+
+/* ── Gauge ──────────────────────────────────────────────────────────────────── */
+.gauge-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.gauge-card:hover { transform: translateY(-2px); border-color: var(--border2); }
+
+.gauge-wrap { position: relative; width: 140px; height: 80px; margin-bottom: 8px; }
+.gauge-wrap canvas { position: absolute; top: 0; left: 0; }
+.gauge-value-overlay {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  text-align: center;
+}
+.gauge-score { font-size: 22px; font-weight: 800; }
+.gauge-name  { font-size: 13px; font-weight: 600; color: var(--text); margin-top: 4px; }
+.gauge-desc  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.score-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 8px;
+}
+.pill-pass   { background: rgba(52,211,153,0.15); color: var(--green); }
+.pill-partial { background: rgba(251,191,36,0.15); color: var(--yellow); }
+.pill-fail   { background: rgba(248,113,113,0.15); color: var(--red); }
+
+/* ── Tables ─────────────────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; margin-top: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface2); }
+td.primary { color: var(--text); font-weight: 500; }
+td.mono-cell { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+/* ── Complexity / Model tags ─────────────────────────────────────────────────── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tag-simple   { background: rgba(52,211,153,0.15); color: var(--green); }
+.tag-moderate { background: rgba(251,191,36,0.15); color: var(--yellow); }
+.tag-complex  { background: rgba(248,113,113,0.15); color: var(--red); }
+.tag-mini     { background: rgba(34,211,238,0.12); color: var(--cyan); }
+.tag-4o       { background: rgba(167,139,250,0.15); color: var(--purple); }
+.tag-pass     { background: rgba(52,211,153,0.12); color: var(--green); }
+.tag-fail     { background: rgba(248,113,113,0.12); color: var(--red); }
+.tag-partial  { background: rgba(251,191,36,0.12); color: var(--yellow); }
+
+/* ── Savings highlight card ───────────────────────────────────────────────── */
+.savings-card {
+  margin-top: 16px;
+  background: linear-gradient(135deg, rgba(52,211,153,0.08) 0%, rgba(79,142,247,0.08) 100%);
+  border: 1px solid rgba(52,211,153,0.2);
+  border-radius: var(--r2);
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+.savings-item { text-align: center; }
+.savings-value { font-size: 24px; font-weight: 800; }
+.savings-value.green  { color: var(--green); }
+.savings-value.blue   { color: var(--blue); }
+.savings-value.yellow { color: var(--yellow); }
+.savings-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ── Triage card ─────────────────────────────────────────────────────────── */
+.triage-alert-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.alert-icon { font-size: 24px; }
+.alert-monitor { font-size: 13px; font-weight: 600; color: var(--text); }
+.alert-time { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+.confidence-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.confidence-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.confidence-dots { display: flex; gap: 4px; }
+.conf-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.conf-dot.active-high   { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.conf-dot.active-medium { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.conf-dot.active-low    { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+.root-cause-box {
+  background: rgba(248,113,113,0.07);
+  border: 1px solid rgba(248,113,113,0.2);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+
+.blast-radius-box {
+  background: rgba(251,191,36,0.07);
+  border: 1px solid rgba(251,191,36,0.2);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--yellow);
+}
+
+.remediation-list { list-style: none; }
+.remediation-list li {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.remediation-list li:last-child { border-bottom: none; }
+.step-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: rgba(79,142,247,0.15);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.slack-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--r);
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 14px;
+}
+.slack-status.sent    { background: rgba(52,211,153,0.1); color: var(--green); border: 1px solid rgba(52,211,153,0.2); }
+.slack-status.pending { background: rgba(251,191,36,0.1); color: var(--yellow); border: 1px solid rgba(251,191,36,0.2); }
+
+/* ── Status Banner ─────────────────────────────────────────────────────────── */
+#status-banner {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(251,191,36,0.08);
+  border-bottom: 1px solid rgba(251,191,36,0.2);
+  font-size: 13px;
+  color: var(--yellow);
+  font-weight: 500;
+}
+#status-banner.show { display: flex; }
+
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(251,191,36,0.3);
+  border-top-color: var(--yellow);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ── Progress steps ─────────────────────────────────────────────────────────── */
+.progress-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 24px;
+}
+.prog-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.prog-step.done   { color: var(--green); border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.07); }
+.prog-step.active { color: var(--yellow); border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.07); animation: pulse-step 1s infinite; }
+.prog-arrow { color: var(--border2); font-size: 10px; }
+
+/* ── Section divider ─────────────────────────────────────────────────────────── */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.section-divider-line { flex: 1; height: 1px; background: var(--border); }
+
+/* ── Placeholder ─────────────────────────────────────────────────────────────── */
+.no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--dim);
+  text-align: center;
+  gap: 8px;
+}
+.no-data-icon { font-size: 32px; opacity: 0.4; }
+.no-data-text { font-size: 13px; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 20px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--dim);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(1.2); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-step {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in { animation: fade-in 0.5s ease forwards; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+
+<body>
+
+<!-- ── Navigation ─────────────────────────────────────────────────────────── -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="dot"></div>
+    <span>LLM Observability</span>
+  </a>
+
+  <div class="nav-links">
+    <a href="#overview">Overview</a>
+    <a href="#p1">RAG Pipeline</a>
+    <a href="#p2">Evaluations</a>
+    <a href="#p3">Cost Router</a>
+    <a href="#p4">SRE Triage</a>
+  </div>
+
+  <div class="nav-right">
+    <div class="status-badge" id="statusBadge">
+      <div class="indicator"></div>
+      <span id="statusText">No data — click Run</span>
+    </div>
+    <button class="btn-run" id="runBtn" onclick="runAllProjects()">
+      <span id="runBtnIcon">▶</span>
+      <span id="runBtnLabel">Run All Projects</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ── Status Banner ──────────────────────────────────────────────────────── -->
+<div id="status-banner">
+  <div class="spinner"></div>
+  <span id="bannerText">Running all 4 projects — this takes ~60 seconds…</span>
+</div>
+
+<!-- ── Main Content ────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Progress steps -->
+  <div class="progress-steps" id="progressSteps" style="display:none">
+    <div class="prog-step" id="ps1">P1 RAG Pipeline</div>
+    <div class="prog-arrow">›</div>
+    <div class="prog-step" id="ps2">P2 Evaluations</div>
+    <div class="prog-arrow">›</div>
+    <div class="prog-step" id="ps3">P3 Cost Router</div>
+    <div class="prog-arrow">›</div>
+    <div class="prog-step" id="ps4">P4 SRE Triage</div>
+  </div>
+
+  <!-- ─── Overview KPIs ─────────────────────────────────────────────────── -->
+  <section class="section" id="overview">
+    <div style="margin-bottom:20px">
+      <div style="font-size:24px;font-weight:800;margin-bottom:4px">
+        LLM Observability <span class="gradient-text">Dashboard</span>
+      </div>
+      <div style="color:var(--muted);font-size:13px">
+        End-to-end monitoring across RAG pipeline · Evaluations · Cost routing · AI SRE triage
+        &nbsp;·&nbsp; <span id="lastRunLabel" style="color:var(--dim)">Never run</span>
+      </div>
+    </div>
+
+    <div class="grid-4" id="kpiGrid">
+      <!-- P1 KPI -->
+      <div class="kpi-card p1">
+        <div class="kpi-header">
+          <div class="kpi-icon blue">🔍</div>
+          <div class="kpi-project-label">Project 1</div>
+        </div>
+        <div class="kpi-main blue" id="kpi1-main">—</div>
+        <div class="kpi-label">Avg Latency</div>
+        <div class="kpi-stats">
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi1-tokens">—</div>
+            <div class="kpi-stat-label">Total Tokens</div>
+          </div>
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi1-traces">—</div>
+            <div class="kpi-stat-label">Traces Run</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- P2 KPI -->
+      <div class="kpi-card p2">
+        <div class="kpi-header">
+          <div class="kpi-icon green">📊</div>
+          <div class="kpi-project-label">Project 2</div>
+        </div>
+        <div class="kpi-main green" id="kpi2-main">—</div>
+        <div class="kpi-label">Avg Quality Score</div>
+        <div class="kpi-stats">
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi2-passrate">—</div>
+            <div class="kpi-stat-label">Pass Rate</div>
+          </div>
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi2-evals">—</div>
+            <div class="kpi-stat-label">Evals Run</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- P3 KPI -->
+      <div class="kpi-card p3">
+        <div class="kpi-header">
+          <div class="kpi-icon yellow">💰</div>
+          <div class="kpi-project-label">Project 3</div>
+        </div>
+        <div class="kpi-main yellow" id="kpi3-main">—</div>
+        <div class="kpi-label">Cost Savings</div>
+        <div class="kpi-stats">
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi3-daily">—</div>
+            <div class="kpi-stat-label">Daily Saved</div>
+          </div>
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi3-annual">—</div>
+            <div class="kpi-stat-label">Annual Saved</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- P4 KPI -->
+      <div class="kpi-card p4">
+        <div class="kpi-header">
+          <div class="kpi-icon pink">🚨</div>
+          <div class="kpi-project-label">Project 4</div>
+        </div>
+        <div class="kpi-main pink" id="kpi4-main">—</div>
+        <div class="kpi-label">Confidence Level</div>
+        <div class="kpi-stats">
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi4-spans">—</div>
+            <div class="kpi-stat-label">Spans Analyzed</div>
+          </div>
+          <div class="kpi-stat">
+            <div class="kpi-stat-value" id="kpi4-slack">—</div>
+            <div class="kpi-stat-label">Slack</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Project 1: RAG Trace Pipeline ─────────────────────────────────── -->
+  <section class="section" id="p1">
+    <div class="section-header">
+      <span class="project-badge p1-badge">Project 1</span>
+      <div>
+        <div class="section-title">RAG Trace Pipeline</div>
+        <div class="section-desc">
+          Full span tree: <code>rag_support_pipeline</code> → <code>query_rewriter</code>
+          → <code>embed_text</code> → <code>vector_retrieval</code> → <code>answer_generator</code>
+          · Sends traces to Datadog LLM Observability Explorer
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">
+          <div class="icon" style="background:rgba(79,142,247,0.15)">⏱</div>
+          Span Latency Breakdown
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartSpanLatency"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <div class="icon" style="background:rgba(167,139,250,0.15)">🪙</div>
+          Token Usage by Model
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartTokens"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <div class="icon" style="background:rgba(79,142,247,0.15)">📋</div>
+        Recent Pipeline Traces
+      </div>
+      <div class="table-wrap">
+        <table id="tracesTable">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Rewritten Query</th>
+              <th>Sources</th>
+              <th>Tokens</th>
+              <th>Latency</th>
+            </tr>
+          </thead>
+          <tbody id="tracesBody">
+            <tr><td colspan="5"><div class="no-data"><div class="no-data-icon">🔍</div><div class="no-data-text">Click <strong>Run All Projects</strong> to generate traces</div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Project 2: Evaluation Framework ──────────────────────────────── -->
+  <section class="section" id="p2">
+    <div class="section-header">
+      <span class="project-badge p2-badge">Project 2</span>
+      <div>
+        <div class="section-title">Evaluation Framework</div>
+        <div class="section-desc">
+          LLM-as-judge evaluations on every RAG response ·
+          <strong style="color:var(--green)">Faithfulness</strong> (no hallucination) ·
+          <strong style="color:var(--cyan)">Relevancy</strong> (on-topic) ·
+          <strong style="color:var(--blue)">Completeness</strong> (full answer) ·
+          Scores → Datadog Metrics + LLMObs.submit_evaluation()
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-3" style="margin-bottom:16px">
+      <div class="gauge-card">
+        <div class="card-title" style="margin-bottom:12px">
+          <div class="icon" style="background:rgba(52,211,153,0.15)">✓</div>
+          Faithfulness
+        </div>
+        <div class="gauge-wrap">
+          <canvas id="gaugeFaithfulness"></canvas>
+          <div class="gauge-value-overlay">
+            <div class="gauge-score" id="gFaithScore" style="color:var(--green)">—</div>
+          </div>
+        </div>
+        <div class="gauge-name">No Hallucination</div>
+        <div class="gauge-desc">Answer grounded in retrieved docs</div>
+        <div id="gFaithPill" class="score-pill">—</div>
+      </div>
+
+      <div class="gauge-card">
+        <div class="card-title" style="margin-bottom:12px">
+          <div class="icon" style="background:rgba(34,211,238,0.15)">🎯</div>
+          Relevancy
+        </div>
+        <div class="gauge-wrap">
+          <canvas id="gaugeRelevancy"></canvas>
+          <div class="gauge-value-overlay">
+            <div class="gauge-score" id="gRelevScore" style="color:var(--cyan)">—</div>
+          </div>
+        </div>
+        <div class="gauge-name">On-Topic</div>
+        <div class="gauge-desc">Answer directly addresses question</div>
+        <div id="gRelevPill" class="score-pill">—</div>
+      </div>
+
+      <div class="gauge-card">
+        <div class="card-title" style="margin-bottom:12px">
+          <div class="icon" style="background:rgba(79,142,247,0.15)">📖</div>
+          Completeness
+        </div>
+        <div class="gauge-wrap">
+          <canvas id="gaugeCompleteness"></canvas>
+          <div class="gauge-value-overlay">
+            <div class="gauge-score" id="gCompScore" style="color:var(--blue)">—</div>
+          </div>
+        </div>
+        <div class="gauge-name">Full Coverage</div>
+        <div class="gauge-desc">All important aspects covered</div>
+        <div id="gCompPill" class="score-pill">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <div class="icon" style="background:rgba(52,211,153,0.15)">📋</div>
+        Evaluation Results
+      </div>
+      <div class="table-wrap">
+        <table id="evalTable">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Faithfulness</th>
+              <th>Relevancy</th>
+              <th>Completeness</th>
+              <th>Overall</th>
+            </tr>
+          </thead>
+          <tbody id="evalBody">
+            <tr><td colspan="5"><div class="no-data"><div class="no-data-icon">📊</div><div class="no-data-text">Evaluation results appear here after running</div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Project 3: Cost + Latency Optimizer ───────────────────────────── -->
+  <section class="section" id="p3">
+    <div class="section-header">
+      <span class="project-badge p3-badge">Project 3</span>
+      <div>
+        <div class="section-title">Cost + Latency Optimizer</div>
+        <div class="section-desc">
+          Intelligent model router · classify complexity → route to cheapest capable model ·
+          <strong style="color:var(--green)">simple</strong> → gpt-4o-mini ·
+          <strong style="color:var(--red)">complex</strong> → gpt-4o ·
+          Tracks per-request cost → Datadog SLO
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">
+          <div class="icon" style="background:rgba(251,191,36,0.15)">💵</div>
+          Daily Cost: Baseline vs Routed
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartCost"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <div class="icon" style="background:rgba(52,211,153,0.15)">🗂️</div>
+          Routing Distribution
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartRouting"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="savings-card" id="savingsCard">
+      <div class="savings-item">
+        <div class="savings-value green" id="savingsPct">—</div>
+        <div class="savings-label">Cost Reduction</div>
+      </div>
+      <div class="savings-item">
+        <div class="savings-value blue" id="savingsDaily">—</div>
+        <div class="savings-label">Saved / Day</div>
+      </div>
+      <div class="savings-item">
+        <div class="savings-value yellow" id="savingsAnnual">—</div>
+        <div class="savings-label">Saved / Year</div>
+      </div>
+      <div class="savings-item">
+        <div class="savings-value" style="color:var(--muted)" id="savingsRequests">—</div>
+        <div class="savings-label">Requests / Day</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        <div class="icon" style="background:rgba(251,191,36,0.15)">🗺️</div>
+        Routing Decisions
+      </div>
+      <div class="table-wrap">
+        <table id="routingTable">
+          <thead>
+            <tr>
+              <th>Query</th>
+              <th>Complexity</th>
+              <th>Routed To</th>
+              <th>Prompt Tokens</th>
+              <th>Cost (USD)</th>
+              <th>Latency</th>
+            </tr>
+          </thead>
+          <tbody id="routingBody">
+            <tr><td colspan="6"><div class="no-data"><div class="no-data-icon">💰</div><div class="no-data-text">Routing decisions appear here after running</div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Project 4: AI SRE Triage Bot ─────────────────────────────────── -->
+  <section class="section" id="p4">
+    <div class="section-header">
+      <span class="project-badge p4-badge">Project 4</span>
+      <div>
+        <div class="section-title">AI SRE Triage Bot</div>
+        <div class="section-desc">
+          Datadog monitor fires → webhook → fetch failing spans → GPT-4o root-cause analysis → Slack Block Kit notification ·
+          Same pattern as Datadog Bits AI SRE
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card" id="triageCard">
+        <div class="card-title">
+          <div class="icon" style="background:rgba(244,114,182,0.15)">🔎</div>
+          Alert + Root Cause Analysis
+        </div>
+        <div id="triageContent">
+          <div class="no-data"><div class="no-data-icon">🚨</div><div class="no-data-text">Triage analysis appears here after running</div></div>
+        </div>
+      </div>
+
+      <div class="card" id="remediationCard">
+        <div class="card-title">
+          <div class="icon" style="background:rgba(79,142,247,0.15)">🛠️</div>
+          Remediation Steps
+        </div>
+        <div id="remediationContent">
+          <div class="no-data"><div class="no-data-icon">🛠️</div><div class="no-data-text">Remediation steps appear here after running</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span>LLM Observability Portfolio · Datadog LLM Observability + OpenAI</span>
+  <span>Dashboard refreshes every 10s · <a href="http://localhost:8000/docs" target="_blank" style="color:var(--blue);text-decoration:none">Project 4 API Docs ↗</a></span>
+</footer>
+
+<!-- ── JavaScript ──────────────────────────────────────────────────────────── -->
+<script>
+// ── Chart.js defaults (dark theme) ────────────────────────────────────────
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+Chart.defaults.font.family = "'Inter', sans-serif";
+Chart.defaults.font.size = 12;
+Chart.defaults.plugins.legend.labels.boxWidth = 10;
+Chart.defaults.plugins.legend.labels.padding = 12;
+
+const charts = {};
+
+// ── Sample data shown before first run ─────────────────────────────────────
+const SAMPLE = {
+  status: 'idle',
+  project1: {
+    runs: [
+      { question: 'How do I set up Datadog LLM Observability for my OpenAI app?', latency_ms: 2518, tokens: 311, sources: ['kb-001','kb-002','kb-003'], rewritten_query: 'Set up Datadog LLM Observability OpenAI app' },
+      { question: 'How can I track token costs in Datadog?',                       latency_ms: 2827, tokens: 299, sources: ['kb-003','kb-001','kb-005'], rewritten_query: 'Track token costs Datadog monitoring' },
+      { question: 'What is prompt template versioning?',                            latency_ms: 1939, tokens: 273, sources: ['kb-005','kb-003','kb-002'], rewritten_query: 'What is prompt template versioning AI' },
+    ],
+    avg_latency_ms: 2428, total_tokens: 883, prompt_tokens: 750, completion_tokens: 133,
+    span_breakdown: {
+      answer_generator:  { avg_ms: 1699, model: 'gpt-4o' },
+      query_rewriter:    { avg_ms: 412,  model: 'gpt-4o-mini' },
+      embed_text:        { avg_ms: 267,  model: 'text-embedding-3-small' },
+      vector_retrieval:  { avg_ms: 2,    model: 'cosine similarity' },
+    },
+  },
+  project2: {
+    results: [
+      { question: 'How do I set up Datadog LLM Observability?...', scores: { faithfulness: { score: 1.0, label: 'pass', reasoning: 'All claims grounded in retrieved docs' }, relevancy: { score: 1.0, label: 'pass', reasoning: 'Directly addresses the setup question' }, completeness: { score: 1.0, label: 'pass', reasoning: 'Covers all main steps' } }, overall_pass: true },
+      { question: 'How can I track token costs in Datadog?...',   scores: { faithfulness: { score: 1.0, label: 'pass', reasoning: 'Answer matches source docs exactly'    }, relevancy: { score: 1.0, label: 'pass', reasoning: 'On-topic cost tracking answer'         }, completeness: { score: 1.0, label: 'pass', reasoning: 'Covers metrics and setup'     } }, overall_pass: true },
+    ],
+    avg_scores: { faithfulness: 1.0, relevancy: 1.0, completeness: 1.0 },
+    pass_rate: 1.0, total_evaluated: 2,
+  },
+  project3: {
+    routing: [
+      { query: 'What is an LLM span?...',                                               complexity: 'simple',   model: 'gpt-4o-mini', cost_usd: 0.000094, latency_ms: 3335, prompt_tokens: 58,  completion_tokens: 42  },
+      { query: 'How do I configure LLM Observability for a multi-step LangChain...',   complexity: 'complex',  model: 'gpt-4o',      cost_usd: 0.006755, latency_ms: 5678, prompt_tokens: 520, completion_tokens: 230 },
+      { query: 'Design a multi-region AI observability architecture...',                complexity: 'complex',  model: 'gpt-4o',      cost_usd: 0.007890, latency_ms: 6202, prompt_tokens: 580, completion_tokens: 260 },
+    ],
+    savings: { baseline_daily_cost_usd: 32.50, routed_daily_cost_usd: 5.00, daily_savings_usd: 27.50, savings_percent: 84.6, annual_savings_usd: 10036, daily_requests: 10000 },
+    distribution: { simple: 1, moderate: 0, complex: 2 },
+  },
+  project4: {
+    monitor_name: '[RAG Bot] Faithfulness score below threshold',
+    triggered_at: new Date().toISOString(),
+    spans_analyzed: 0,
+    slack_sent: true,
+    analysis: {
+      root_cause: 'Recent update to the knowledge base introduced inaccuracies in retrieved information, causing the RAG bot to generate responses not grounded in the source documents.',
+      confidence: 'medium',
+      remediation_steps: [
+        'Roll back the knowledge base to the last known stable version.',
+        'Review recent changes to identify specific inaccuracies or data drift.',
+        'Implement stricter validation checks for future knowledge base updates.',
+      ],
+      blast_radius: 'Potentially all users interacting with rag-support-bot.',
+      additional_data_needed: 'Change logs for recent KB updates and retrieval error logs.',
+      summary: 'Faithfulness drop likely due to recent KB update; rollback and review needed.',
+    },
+  },
+};
+
+// ── Render helpers ─────────────────────────────────────────────────────────
+
+function pill(label) {
+  const cls = label === 'pass' ? 'tag-pass' : label === 'fail' ? 'tag-fail' : 'tag-partial';
+  return `<span class="tag ${cls}">${label.toUpperCase()}</span>`;
+}
+
+function scoreColor(s) {
+  return s >= 0.8 ? '#34d399' : s >= 0.5 ? '#fbbf24' : '#f87171';
+}
+
+function pillClass(label) {
+  return label === 'pass' ? 'pill-pass' : label === 'fail' ? 'pill-fail' : 'pill-partial';
+}
+
+function complexTag(c) {
+  const m = { simple: 'tag-simple', moderate: 'tag-moderate', complex: 'tag-complex' };
+  return `<span class="tag ${m[c] || ''}">${c}</span>`;
+}
+
+function modelTag(m) {
+  const cls = m.includes('mini') ? 'tag-mini' : 'tag-4o';
+  return `<span class="tag ${cls}">${m}</span>`;
+}
+
+// ── KPI updates ────────────────────────────────────────────────────────────
+
+function updateKPIs(d) {
+  const p1 = d.project1, p2 = d.project2, p3 = d.project3, p4 = d.project4;
+  if (p1) {
+    document.getElementById('kpi1-main').textContent   = p1.avg_latency_ms + 'ms';
+    document.getElementById('kpi1-tokens').textContent = p1.total_tokens.toLocaleString();
+    document.getElementById('kpi1-traces').textContent = p1.runs.length;
+  }
+  if (p2) {
+    const avg = Object.values(p2.avg_scores).reduce((a,b)=>a+b,0)/3;
+    document.getElementById('kpi2-main').textContent     = avg.toFixed(2);
+    document.getElementById('kpi2-passrate').textContent = (p2.pass_rate * 100).toFixed(0) + '%';
+    document.getElementById('kpi2-evals').textContent    = p2.total_evaluated;
+  }
+  if (p3) {
+    document.getElementById('kpi3-main').textContent   = p3.savings.savings_percent + '%';
+    document.getElementById('kpi3-daily').textContent  = '$' + p3.savings.daily_savings_usd.toFixed(2);
+    document.getElementById('kpi3-annual').textContent = '$' + p3.savings.annual_savings_usd.toLocaleString();
+  }
+  if (p4) {
+    const conf = p4.analysis?.confidence || '—';
+    document.getElementById('kpi4-main').textContent  = conf.toUpperCase();
+    document.getElementById('kpi4-spans').textContent = p4.spans_analyzed;
+    document.getElementById('kpi4-slack').textContent = p4.slack_sent ? '✓ Sent' : '✗ Failed';
+  }
+}
+
+// ── Project 1 charts + table ───────────────────────────────────────────────
+
+function renderP1(p1) {
+  const sb = p1.span_breakdown;
+  const labels = Object.keys(sb);
+  const values = labels.map(k => sb[k].avg_ms);
+  const colors = ['#a78bfa','#4f8ef7','#22d3ee','#34d399'];
+
+  if (charts.spanLatency) charts.spanLatency.destroy();
+  charts.spanLatency = new Chart(document.getElementById('chartSpanLatency'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors.map(c => c + '99'),
+        borderColor: colors,
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} ms  (${sb[ctx.label].model})` } } },
+      scales: {
+        x: { title: { display: true, text: 'Avg Latency (ms)', color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+
+  if (charts.tokens) charts.tokens.destroy();
+  charts.tokens = new Chart(document.getElementById('chartTokens'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Prompt Tokens', 'Completion Tokens'],
+      datasets: [{ data: [p1.prompt_tokens, p1.completion_tokens], backgroundColor: ['#4f8ef7cc','#a78bfacc'], borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#94a3b8' } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed.toLocaleString()} tokens` } }
+      },
+    },
+  });
+
+  const tbody = document.getElementById('tracesBody');
+  tbody.innerHTML = p1.runs.map(r => `
+    <tr>
+      <td class="primary" style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.question}">${r.question.slice(0,55)}…</td>
+      <td class="mono-cell" style="color:var(--cyan);font-size:11px">${r.rewritten_query}</td>
+      <td>${r.sources.map(s=>`<span class="tag" style="background:rgba(79,142,247,0.1);color:var(--blue);margin-right:3px">${s}</span>`).join('')}</td>
+      <td class="mono-cell">${r.tokens.toLocaleString()}</td>
+      <td class="mono-cell" style="color:var(--yellow)">${r.latency_ms}ms</td>
+    </tr>`).join('');
+}
+
+// ── Project 2 gauges + table ───────────────────────────────────────────────
+
+function makeGauge(canvasId, score, color) {
+  if (charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [score * 100, (1 - score) * 100],
+        backgroundColor: [color + 'cc', 'rgba(255,255,255,0.05)'],
+        borderWidth: 0,
+        hoverOffset: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '78%',
+      rotation: -90,
+      circumference: 180,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      animation: { duration: 1000, easing: 'easeOutQuart' },
+    },
+  });
+}
+
+function renderP2(p2) {
+  const s = p2.avg_scores;
+  const gauges = [
+    ['gaugeFaithfulness', s.faithfulness, '#34d399', 'gFaithScore', 'gFaithPill'],
+    ['gaugeRelevancy',    s.relevancy,    '#22d3ee', 'gRelevScore', 'gRelevPill'],
+    ['gaugeCompleteness', s.completeness, '#4f8ef7', 'gCompScore',  'gCompPill'],
+  ];
+
+  for (const [cid, score, color, scoreId, pillId] of gauges) {
+    makeGauge(cid, score, color);
+    document.getElementById(scoreId).textContent = score.toFixed(2);
+    document.getElementById(scoreId).style.color = scoreColor(score);
+    const label = score >= 0.8 ? 'pass' : score >= 0.5 ? 'partial' : 'fail';
+    const el = document.getElementById(pillId);
+    el.textContent = label.toUpperCase();
+    el.className = `score-pill ${pillClass(label)}`;
+  }
+
+  const tbody = document.getElementById('evalBody');
+  tbody.innerHTML = p2.results.map(r => `
+    <tr>
+      <td class="primary" style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.question}">${r.question}</td>
+      ${['faithfulness','relevancy','completeness'].map(m => {
+        const sc = r.scores[m]; return `<td>${pill(sc.label)} <span class="mono-cell" style="color:${scoreColor(sc.score)};margin-left:4px">${sc.score.toFixed(2)}</span></td>`;
+      }).join('')}
+      <td>${r.overall_pass ? '<span class="tag tag-pass">✓ PASS</span>' : '<span class="tag tag-fail">✗ FAIL</span>'}</td>
+    </tr>`).join('');
+}
+
+// ── Project 3 charts + table ───────────────────────────────────────────────
+
+function renderP3(p3) {
+  const s = p3.savings;
+
+  if (charts.cost) charts.cost.destroy();
+  charts.cost = new Chart(document.getElementById('chartCost'), {
+    type: 'bar',
+    data: {
+      labels: ['Daily Cost (10K requests)'],
+      datasets: [
+        { label: `Baseline – all gpt-4o  $${s.baseline_daily_cost_usd}/day`,  data: [s.baseline_daily_cost_usd], backgroundColor: '#f8717199', borderColor: '#f87171', borderWidth: 1, borderRadius: 4 },
+        { label: `With routing  $${s.routed_daily_cost_usd}/day`,              data: [s.routed_daily_cost_usd],   backgroundColor: '#34d39999', borderColor: '#34d399', borderWidth: 1, borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}` } } },
+      scales: { y: { title: { display: true, text: 'USD / day', color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } }, x: { grid: { display: false } } },
+    },
+  });
+
+  const dist = p3.distribution;
+  const total = Object.values(dist).reduce((a,b)=>a+b,0) || 1;
+  if (charts.routing) charts.routing.destroy();
+  charts.routing = new Chart(document.getElementById('chartRouting'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Simple → gpt-4o-mini', 'Moderate → gpt-4o-mini', 'Complex → gpt-4o'],
+      datasets: [{
+        data: [dist.simple||0, dist.moderate||0, dist.complex||0],
+        backgroundColor: ['#34d39988','#fbbf2488','#f8717188'],
+        borderColor:     ['#34d399',  '#fbbf24',  '#f87171'],
+        borderWidth: 1, hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '58%',
+      plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } },
+    },
+  });
+
+  document.getElementById('savingsPct').textContent    = s.savings_percent + '%';
+  document.getElementById('savingsDaily').textContent  = '$' + s.daily_savings_usd.toFixed(2);
+  document.getElementById('savingsAnnual').textContent = '$' + s.annual_savings_usd.toLocaleString();
+  document.getElementById('savingsRequests').textContent = (s.daily_requests||10000).toLocaleString();
+
+  const tbody = document.getElementById('routingBody');
+  tbody.innerHTML = p3.routing.map(r => `
+    <tr>
+      <td class="primary" style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.query}">${r.query}</td>
+      <td>${complexTag(r.complexity)}</td>
+      <td>${modelTag(r.model)}</td>
+      <td class="mono-cell">${(r.prompt_tokens||'—').toLocaleString()}</td>
+      <td class="mono-cell" style="color:var(--yellow)">$${r.cost_usd.toFixed(6)}</td>
+      <td class="mono-cell" style="color:var(--cyan)">${r.latency_ms}ms</td>
+    </tr>`).join('');
+}
+
+// ── Project 4 triage card ──────────────────────────────────────────────────
+
+function confidenceDots(level) {
+  const map = { high: 5, medium: 3, low: 1 };
+  const active = map[level] || 2;
+  const cls = `active-${level}`;
+  return Array.from({length:5}, (_,i) =>
+    `<div class="conf-dot ${i < active ? cls : ''}"></div>`
+  ).join('');
+}
+
+function renderP4(p4) {
+  const a = p4.analysis;
+  const conf = a.confidence || 'medium';
+  const time = p4.triggered_at ? new Date(p4.triggered_at).toLocaleTimeString() : '—';
+
+  document.getElementById('triageContent').innerHTML = `
+    <div class="triage-alert-header">
+      <div class="alert-icon">🚨</div>
+      <div>
+        <div class="alert-monitor">${p4.monitor_name}</div>
+        <div class="alert-time">Triggered at ${time} · ${p4.spans_analyzed} spans analyzed</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-weight:600">Root Cause</div>
+    <div class="root-cause-box">${a.root_cause}</div>
+    <div class="confidence-row">
+      <span class="confidence-label">Confidence:</span>
+      <div class="confidence-dots">${confidenceDots(conf)}</div>
+      <span style="font-size:12px;font-weight:700;color:${conf==='high'?'var(--red)':conf==='medium'?'var(--yellow)':'var(--green)'};text-transform:uppercase">${conf}</span>
+    </div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-weight:600">Blast Radius</div>
+    <div class="blast-radius-box">${a.blast_radius}</div>
+    <div class="${p4.slack_sent ? 'slack-status sent' : 'slack-status pending'}">
+      ${p4.slack_sent ? '✓ Slack notification sent' : '⚠ Slack notification pending'}
+    </div>`;
+
+  document.getElementById('remediationContent').innerHTML = `
+    <div style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Summary</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.6">${a.summary}</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;font-weight:600">Remediation Steps</div>
+    <ul class="remediation-list">
+      ${a.remediation_steps.map((step,i) => `<li><div class="step-num">${i+1}</div><span>${step}</span></li>`).join('')}
+    </ul>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-weight:600">What Else to Check</div>
+      <div style="font-size:13px;color:var(--muted)">${a.additional_data_needed}</div>
+    </div>`;
+}
+
+// ── Status UI ──────────────────────────────────────────────────────────────
+
+function setStatus(status, lastRun) {
+  const badge = document.getElementById('statusBadge');
+  const text  = document.getElementById('statusText');
+  const banner = document.getElementById('status-banner');
+  const runBtn = document.getElementById('runBtn');
+  const runIcon  = document.getElementById('runBtnIcon');
+  const runLabel = document.getElementById('runBtnLabel');
+  const steps  = document.getElementById('progressSteps');
+
+  badge.className = `status-badge ${status}`;
+
+  if (status === 'running') {
+    text.textContent = 'Running…';
+    banner.classList.add('show');
+    runBtn.disabled = true;
+    runIcon.textContent = '⏳';
+    runLabel.textContent = 'Running…';
+    steps.style.display = 'flex';
+  } else if (status === 'done') {
+    text.textContent = 'All projects complete';
+    banner.classList.remove('show');
+    runBtn.disabled = false;
+    runIcon.textContent = '▶';
+    runLabel.textContent = 'Run Again';
+    steps.style.display = 'none';
+    const t = lastRun ? new Date(lastRun).toLocaleTimeString() : '';
+    document.getElementById('lastRunLabel').textContent = `Last run: ${t}`;
+  } else if (status === 'error') {
+    text.textContent = 'Run failed — check console';
+    banner.classList.remove('show');
+    runBtn.disabled = false;
+    runIcon.textContent = '▶';
+    runLabel.textContent = 'Retry';
+  } else {
+    text.textContent = 'No data — click Run';
+    banner.classList.remove('show');
+    runBtn.disabled = false;
+  }
+}
+
+function updateProgressStep(p1Done, p2Done, p3Done, p4Done) {
+  const steps = [
+    { id: 'ps1', done: p1Done },
+    { id: 'ps2', done: p2Done },
+    { id: 'ps3', done: p3Done },
+    { id: 'ps4', done: p4Done },
+  ];
+  const firstActive = steps.findIndex(s => !s.done);
+  steps.forEach((s, i) => {
+    const el = document.getElementById(s.id);
+    el.className = 'prog-step' + (s.done ? ' done' : i === firstActive ? ' active' : '');
+  });
+}
+
+// ── Fetch & update ────────────────────────────────────────────────────────
+
+async function fetchAndRender() {
+  try {
+    const res = await fetch('/api/metrics');
+    const data = await res.json();
+
+    setStatus(data.status, data.last_run);
+
+    if (data.status === 'running') {
+      updateProgressStep(!!data.project1, !!data.project2, !!data.project3, !!data.project4);
+    }
+
+    const d = (data.project1 || data.project2 || data.project3 || data.project4) ? data : SAMPLE;
+    updateKPIs(d);
+    if (d.project1) renderP1(d.project1);
+    if (d.project2) renderP2(d.project2);
+    if (d.project3) renderP3(d.project3);
+    if (d.project4) renderP4(d.project4);
+
+  } catch (e) {
+    console.warn('Metrics fetch failed — showing sample data', e);
+    updateKPIs(SAMPLE);
+    renderP1(SAMPLE.project1);
+    renderP2(SAMPLE.project2);
+    renderP3(SAMPLE.project3);
+    renderP4(SAMPLE.project4);
+  }
+}
+
+async function runAllProjects() {
+  try {
+    await fetch('/api/run', { method: 'POST' });
+    setStatus('running', null);
+  } catch(e) {
+    alert('Could not reach dashboard server. Make sure it is running on port 8080.');
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+
+// Show sample data immediately
+updateKPIs(SAMPLE);
+renderP1(SAMPLE.project1);
+renderP2(SAMPLE.project2);
+renderP3(SAMPLE.project3);
+renderP4(SAMPLE.project4);
+
+// Then try to fetch real data
+fetchAndRender();
+
+// Poll every 8 seconds
+setInterval(fetchAndRender, 8000);
+</script>
+</body>
+</html>
